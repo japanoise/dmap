@@ -37,8 +37,9 @@ const RankMax = math.MaxUint16 - 10
 // map. To reach a target, an AI should try to minimize the rank of
 // the tile it's standing on (targets have a value of zero)
 type DijkstraMap struct {
-	Points [][]Rank
-	M      Map
+	Points       [][]Rank
+	M            Map
+	NeigbourFunc func(d *DijkstraMap, x, y int) []WeightedPoint
 }
 
 // WeightedPoint is a Point that also has a rank
@@ -54,7 +55,7 @@ func (d *WeightedPoint) GetXY() (int, int) {
 }
 
 // BlankDMap creates a blank Dijkstra map to be used with the map passed to it
-func BlankDMap(m Map) *DijkstraMap {
+func BlankDMap(m Map, neigbourfunc func(d *DijkstraMap, x, y int) []WeightedPoint) *DijkstraMap {
 	ret := make([][]Rank, m.SizeX())
 	for i := range ret {
 		ret[i] = make([]Rank, m.SizeY())
@@ -62,7 +63,33 @@ func BlankDMap(m Map) *DijkstraMap {
 			ret[i][j] = RankMax
 		}
 	}
-	return &DijkstraMap{ret, m}
+	return &DijkstraMap{ret, m, neigbourfunc}
+}
+
+// ManhattanNeighbours returns the neighbours of the block x, y to the
+// north, south, east, and west
+func ManhattanNeighbours(d *DijkstraMap, x, y int) []WeightedPoint {
+	return []WeightedPoint{
+		d.GetValPoint(x+1, y),
+		d.GetValPoint(x-1, y),
+		d.GetValPoint(x, y-1),
+		d.GetValPoint(x, y+1),
+	}
+}
+
+// DiagonalNeighbours returns the neighbours of the block x, y to the
+// north, south, east, west, NE, SE, NW, and SW
+func DiagonalNeighbours(d *DijkstraMap, x, y int) []WeightedPoint {
+	return []WeightedPoint{
+		d.GetValPoint(x+1, y),
+		d.GetValPoint(x-1, y),
+		d.GetValPoint(x, y-1),
+		d.GetValPoint(x, y+1),
+		d.GetValPoint(x+1, y+1),
+		d.GetValPoint(x+1, y-1),
+		d.GetValPoint(x-1, y+1),
+		d.GetValPoint(x-1, y-1),
+	}
 }
 
 // Calc calculates the Dijkstra map with points given as targets. You
@@ -114,7 +141,10 @@ func (d *DijkstraMap) Recalc(points ...Point) {
 	d.Calc(points...)
 }
 
-func (d *DijkstraMap) getValPoint(x, y int) WeightedPoint {
+// GetValPoint gets the weighted point at X, Y of the Dijkstra
+// map. Points that are out of bounds count as maximum rank (so
+// shouldn't be targeted)
+func (d *DijkstraMap) GetValPoint(x, y int) WeightedPoint {
 	if d.M.OOB(x, y) {
 		return WeightedPoint{x, y, RankMax}
 	}
@@ -122,22 +152,9 @@ func (d *DijkstraMap) getValPoint(x, y int) WeightedPoint {
 }
 
 // LowestNeighbour returns the neighbour of the point at x, y with the
-// lowest rank. It uses the diagonal neighbourhood, but is easily
-// modified by a fork of the library to use the Manhattan
-// neighbourhood instead. In a future version I may provide the
-// ability to choose an implementation.
+// lowest rank.
 func (d *DijkstraMap) LowestNeighbour(x, y int) WeightedPoint {
-	vals := []WeightedPoint{
-		d.getValPoint(x+1, y),
-		d.getValPoint(x-1, y),
-		d.getValPoint(x, y-1),
-		d.getValPoint(x, y+1),
-		// If the last four are deleted, it will use Manhattan instead
-		d.getValPoint(x+1, y+1),
-		d.getValPoint(x+1, y-1),
-		d.getValPoint(x-1, y+1),
-		d.getValPoint(x-1, y-1),
-	}
+	vals := d.NeigbourFunc(d, x, y)
 	var lv Rank = RankMax
 	ret := vals[0]
 	for _, val := range vals {
